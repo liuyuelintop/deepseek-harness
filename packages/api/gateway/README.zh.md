@@ -34,7 +34,7 @@ Connection 可用时，Host 入口会在 Connection 共享的 `/api` FetchHandle
 
 流式 Remote 使用 `@Remote({ mode: 'stream' })` 并返回 `Iterable` 或 `AsyncIterable`。`ctx.typertGateway.stream()` 执行与一元调用相同的 endpoint、参数、lookup 和取消校验，再用生成的 result codec 校验每个产出项。Client 插件激活时打开 Gateway 自有的 `/api/remote.mux` WebSocket，并让它在空闲时保持连接。Connection 拥有重试调度；每次 retry 前，它要求 mux 取消候选或活动 socket，并且只做一次全新的物理连接尝试。Host 按配置的 `websocketHeartbeatIntervalMs` 间隔（默认 2 秒）发送 Ping 控制帧，浏览器在 WebSocket 协议层自动回复 Pong，使空闲网络中间层持续看到流量，而不新增 Remote stream frame。若 socket 尚未回复上一次 Ping，Host 会在下一间隔终止它。可独立取消的逻辑流共享这条连接；进程内 Connection 载体直接提供等价的流，不打开该 WebSocket。
 
-具有 `invocation.kind: 'view'` 的严格一元描述符以该物理 WebSocket 作为接收者权限。唯一的 Session Controller 解析器会验证该连接所显示的会话并返回 Cordis 子上下文；描述符不携带协议身份。重新绑定会先清除旧 Context，再解析新会话，并取消活动 view 调用。HTTP、进程内、陈旧连接和未绑定调用都会在业务代码执行前失败。[Host 自有 Web view Context 决策](../../../.agents/notes/implemented/architecture/2026-08-31-host-owned-web-view-context.zh.md)记录了安全与生命周期理由。
+具有 `invocation.kind: 'view'` 的严格一元描述符以该物理 WebSocket 作为接收者权限。Gateway 在内部跟随 Session Controller 的只读当前选择快照，且不公开绑定 setter。唯一的 Host 解析器会验证该连接所显示的会话并返回 Cordis 子上下文；描述符不携带协议身份。重新绑定会先清除旧 Context，再解析新会话，并取消活动 view 调用。HTTP、进程内、陈旧连接和未绑定调用都会在业务代码执行前失败。[Host 自有 Web view Context 决策](../../../.agents/notes/implemented/architecture/2026-08-31-host-owned-web-view-context.zh.md)记录了安全与生命周期理由。
 
 Host 组合可通过 `registerRemoteEvents()` 注册唯一的应用事件 source。Gateway 为它保留内部 `$events` logical endpoint，只接受空 `args`，并在 source 撤回时中止该注册打开的 stream。事件名单、参数校验、每 Client 队列及 opening `{ type: 'ready', clientId, host: { home } }` frame 中的 Host home 由 API Remotes 拥有。source factory 在返回 iterable 前同步挂好增量 listener，因此 Client 只在增量投递就绪后发布 generation 并开始 baseline 读取。
 
