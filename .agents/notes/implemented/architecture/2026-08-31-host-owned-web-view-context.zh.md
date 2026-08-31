@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-网关为每条物理 Remote WebSocket 分别拥有一个显示会话绑定，并在内部观察 Session Controller 的只读 `sessions.list.current` 快照。它不公开任何可替换该绑定的 Client Remote 方法。Host 通过 `sessionQuery` 验证非空选择，然后创建一个 Cordis 子上下文，并把其中的 `viewSessionId` 固定为已验证的会话。清除选择后，该连接不再具有 view Context。
+网关为每条物理 Remote WebSocket 分别拥有一个显示会话绑定。Session Controller 将 `sessions.list.current` 投影到该绑定。Host 通过 `sessionQuery` 验证非空选择，然后创建一个 Cordis 子上下文，并把其中的 `viewSessionId` 固定为已验证的会话。清除选择后，该连接不再具有 view Context。
 
 Typert 描述符通过 `invocation.kind: 'view'` 选择使用这项权限。客户端将这种方法公开为普通的一元 Remote 方法，其业务参数中没有 Context 身份或会话 id。客户端通过已经认证的物理 WebSocket 发送调用，网关在解码请求后注入该连接当前的 view Context。HTTP 调用和直接调用没有传输层自有的 view Context，因此会在业务代码执行前失败。
 

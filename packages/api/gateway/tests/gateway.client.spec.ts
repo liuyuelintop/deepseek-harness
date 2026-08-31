@@ -830,21 +830,12 @@ describe('Client Typert API', () => {
         invocation: { kind: 'view' },
       }
       const dispose = await ctx.remote.$mount({ package: '@fixture/view', descriptors: [descriptor] })
-      let current: string | undefined = 'alpha'
-      const listeners = new Set<() => void>()
-      ctx.provide('sessions', {
-        list: {
-          getSnapshot: () => ({ current }),
-          subscribe: (listener: () => void) => {
-            listeners.add(listener)
-            return () => { listeners.delete(listener) }
-          },
-        },
-      })
+      const binding = ctx.remote.$setViewSession('alpha')
       const socket = FakeWebSocket.sockets[0]!
       await vi.waitFor(() => { expect(socket.sent).toHaveLength(1) })
       const bind = JSON.parse(socket.sent[0]!) as { streamId: string }
       socket.receive({ type: 'end', streamId: bind.streamId })
+      await binding
 
       const outcome = ctx.remote.probe.rename({ objective: 'land' })
       await vi.waitFor(() => { expect(socket.sent).toHaveLength(2) })
@@ -864,14 +855,6 @@ describe('Client Typert API', () => {
       socket.receive({ type: 'end', streamId: request.streamId })
       await expect(outcome).resolves.toEqual({ ok: true, value: { renamed: true } })
       expect(call).not.toHaveBeenCalled()
-      expect((ctx.remote as unknown as Record<string, unknown>).$setViewSession).toBeUndefined()
-
-      current = 'beta'
-      for (const listener of listeners) listener()
-      await vi.waitFor(() => { expect(socket.sent).toHaveLength(3) })
-      const navigation = JSON.parse(socket.sent[2]!) as { streamId: string; payload: unknown }
-      expect(navigation.payload).toEqual({ sessionId: 'beta' })
-      socket.receive({ type: 'end', streamId: navigation.streamId })
 
       await dispose()
       await ctx.fiber.dispose()
