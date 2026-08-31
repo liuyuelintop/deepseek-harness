@@ -101,32 +101,6 @@ describe('SessionController facade', () => {
     await expect(iterator.next()).resolves.toEqual({ done: true, value: undefined })
   })
 
-  it('resolves only existing Sessions into Host view Contexts', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(AgentRegistry)
-    const sessionId = SessionId('view-session')
-    ctx.sessions.create(sessionId, { meta: { cwd: '/workspace' } })
-    let resolver: ((sessionId: string, signal: AbortSignal) => Promise<Context | undefined>) | undefined
-    const unregister = vi.fn(() => Promise.resolve())
-    ctx.provide('typertGateway', {
-      registerViewResolver: (value: typeof resolver) => {
-        resolver = value
-        return ctx.effect(() => unregister)
-      },
-    } as never)
-    createSessionTestController(ctx, defaults)
-    await vi.waitFor(() => { expect(resolver).toBeTypeOf('function') })
-    if (resolver === undefined) throw new Error('Session Controller did not register its view resolver')
-
-    const selected = await resolver(sessionId, new AbortController().signal)
-    expect(selected?.viewSessionId).toBe(sessionId)
-    await expect(resolver('missing-session', new AbortController().signal)).resolves.toBeUndefined()
-
-    await ctx.fiber.dispose()
-    expect(unregister).toHaveBeenCalledOnce()
-  })
-
   it.each(['success', 'domain-error', 'throw'] as const)(
     'promotes a prepared follow observation in the background: %s',
     async (outcome) => {

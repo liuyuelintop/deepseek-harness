@@ -32,7 +32,6 @@ import type {
   TypertRemoteEventInvocation,
   TypertRemoteEventOutcome,
   TypertRemoteEventSource,
-  TypertViewResolver,
 } from './types.ts'
 import {
   RemoteStreamMuxServer,
@@ -69,7 +68,6 @@ export type {
   TypertRemoteEventInvocation,
   TypertRemoteEventOutcome,
   TypertRemoteEventSource,
-  TypertViewResolver,
 } from './types.ts'
 export type { RemoteEventHostInfo } from './stream-protocol.ts'
 
@@ -182,7 +180,6 @@ export class TypertGatewayService extends Service implements TypertGateway {
   }
 
   private srcClaims: ReadonlySet<string> | undefined
-  private viewResolver: TypertViewResolver | undefined
   private remoteEvents: RegisteredRemoteEventSource | undefined
   private readonly remoteEventClients = new Map<RemoteEventClientId, RemoteEventClient>()
   private readonly pendingRemoteEvents = new Map<RemoteEventId, PendingRemoteEvent>()
@@ -210,15 +207,6 @@ export class TypertGatewayService extends Service implements TypertGateway {
         (endpoint, payload, signal) => this.openWireStream(endpoint, payload, signal),
         this.wireStream.failure,
         resolved.websocketHeartbeatIntervalMs,
-        {
-          bind: (sessionId, signal) => this.resolveView(sessionId, signal),
-          call: (endpoint, payload, signal, view) => this.invokeRpc(
-            endpoint,
-            payload,
-            signal,
-            view as Context | undefined,
-          ),
-        },
       )
       webCtx.effect(() => {
         const route: WebUpgradeRoute = {
@@ -239,22 +227,6 @@ export class TypertGatewayService extends Service implements TypertGateway {
         }
       }, `api-gateway: ${REMOTE_STREAM_MUX_PATH} WebSocket`)
     })
-  }
-
-  registerViewResolver(resolver: TypertViewResolver): () => Promise<void> {
-    const owner = originalOf(this) as TypertGatewayService
-    if (owner.viewResolver !== undefined) {
-      throw new Error('typert gateway: Remote view resolver is already registered')
-    }
-    owner.viewResolver = resolver
-    return this.ctx.effect(() => () => {
-      if (owner.viewResolver === resolver) owner.viewResolver = undefined
-    }, 'api-gateway.view-resolver')
-  }
-
-  private resolveView(sessionId: string | undefined, signal: AbortSignal): Promise<Context | undefined> {
-    if (sessionId === undefined || this.viewResolver === undefined) return Promise.resolve(undefined)
-    return this.viewResolver(sessionId, signal)
   }
 
   /**
@@ -324,11 +296,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
    * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; lookup-policy and business errors retain identity.
    */
   async invoke(request: InvokeRemoteRequest): Promise<unknown> {
-    return this.invokeUnary(request)
-  }
-
-  private async invokeUnary(request: InvokeRemoteRequest, view?: Context): Promise<unknown> {
-    const prepared = await this.prepareInvocation(request, view)
+    const prepared = await this.prepareInvocation(request)
     if (prepared.descriptor.mode === 'stream') {
       throw new TypertGatewayError(
         'gateway/signature-invalid',
@@ -619,15 +587,9 @@ export class TypertGatewayService extends Service implements TypertGateway {
     for (const client of [...this.remoteEventClients.values()]) client.queue.end()
   }
 
-  private async invokeRpc(
-    endpoint: string,
-    payload: unknown,
-    signal: AbortSignal,
-    view?: Context,
-  ): Promise<ConnectionRpcResult> {
+  private async invokeRpc(endpoint: string, payload: unknown, signal: AbortSignal): Promise<ConnectionRpcResult> {
     try {
-      const request = remoteRequest(endpoint, payload, signal)
-      const value = await this.invokeUnary(request, view)
+      const value = await this.invoke(remoteRequest(endpoint, payload, signal))
       // A void or explicitly absent business result carries no `value` field;
       // JSON has no `undefined`, and the envelope's optional slot is the one
       // representation of absence that both args and results already use.
@@ -637,16 +599,11 @@ export class TypertGatewayService extends Service implements TypertGateway {
     }
   }
 
-  private async prepareInvocation(request: InvokeRemoteRequest, view?: Context): Promise<PreparedInvocation> {
+  private async prepareInvocation(request: InvokeRemoteRequest): Promise<PreparedInvocation> {
     const endpoint = endpointOf(request.namespace, request.method)
     const descriptor = this.resolveDescriptor(request.namespace, request.method, endpoint)
     assertExactArguments(request.args, descriptor, endpoint)
-    const receiverContext = await this.resolveReceiverContext(
-      descriptor,
-      request.args,
-      endpoint,
-      view,
-    )
+    const receiverContext = await this.resolveReceiverContext(descriptor, request.args, endpoint)
     const receiver = receiverContext.get(descriptor.service) as unknown
     if (!isObject(receiver)) {
       throw new TypertGatewayError(
@@ -811,17 +768,8 @@ export class TypertGatewayService extends Service implements TypertGateway {
     descriptor: InvocationDescriptor,
     args: Readonly<Record<string, unknown>>,
     endpoint: string,
-    view?: Context,
   ): Promise<Context> {
     if (descriptor.invocation.kind === 'direct') return this.ctx
-    if (descriptor.invocation.kind === 'view') {
-      if (view !== undefined) return view
-      throw new TypertGatewayError(
-        'gateway/context-unavailable',
-        endpoint,
-        'Host view Context is unavailable',
-      )
-    }
     const invocation = descriptor.invocation
     const provider = this.ctx.typert.contexts.getHost(invocation.context)
     if (provider === undefined) {
@@ -990,11 +938,7 @@ function parseRemoteEventResultPayload(payload: unknown): ReturnType<typeof pars
   return parseRemoteEventResult(payload.args)
 }
 
-function remoteRequest(
-  endpoint: string,
-  payload: unknown,
-  signal: AbortSignal,
-): InvokeRemoteRequest {
+function remoteRequest(endpoint: string, payload: unknown, signal: AbortSignal): InvokeRemoteRequest {
   const segments = endpoint.split('/')
   if (segments.length !== 2 || segments[0] === '' || segments[1] === '') {
     throw new Error(`invalid Remote endpoint ${JSON.stringify(endpoint)}`)

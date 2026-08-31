@@ -87,7 +87,7 @@ Host 装配以转发给消费端的 Cordis 事件扩展 `TypertRemoteEventSelect
 
 ### 协议映射与描述符
 
-可合并扩展的协议映射在类型系统中保留静态关联，运行时提供方则向 `ctx.typert` 注册解析；映射的名称与形状见 [`src/types.ts`](src/types.ts)。`InvocationDescriptor` 是注册表、Gateway 与 Client Remote 共同消费的共享运行时形式，涵盖直接接收者、调用方选择的 Context 接收者、Host 自有的 Web view 接收者、JSON 与查找参数、作用域投影、取消与结果编解码器。
+可合并扩展的协议映射在类型系统中保留静态关联，运行时提供方则向 `ctx.typert` 注册解析；映射的名称与形状见 [`src/types.ts`](src/types.ts)。`InvocationDescriptor` 是注册表、Gateway 与 Client Remote 共同消费的共享运行时形式，涵盖直接与 Context 接收者、JSON 与查找参数、作用域投影、取消与结果编解码器。
 
 ### Wire 标识文法
 
@@ -137,7 +137,6 @@ Host 装配以转发给消费端的 Cordis 事件扩展 `TypertRemoteEventSelect
 
 - **装饰器标记是最小化的**——标记只包含方法名与直接调用或 Context 调用模式；参数、结果、查找与 schema 反射需要 Typert 构建流水线。
 - **Remote 签名受限**——装饰器只接受具有字符串名称的公开、非静态实例方法，源码模式执行无法表示重载、解构、默认参数或剩余参数签名。
-- **view 接收者由装配拥有**——装饰器和源码模式不会推断 `invocation.kind: 'view'`；显式选择的严格描述符必须声明它，且 Gateway 只允许一元调用。
 
 <a id="dev-note"></a>
 ### 开发备注

@@ -87,7 +87,7 @@ The package keeps strict reflection in the compiler: decorator initializers reta
 
 ### Protocol maps and descriptors
 
-The merge-extensible protocol maps keep static associations in the type system, while runtime providers register resolution with `ctx.typert`; the map names and shapes live in [`src/types.ts`](src/types.ts). `InvocationDescriptor` is the shared runtime form consumed by the registry, the Gateway, and the Client Remote, covering direct, caller-selected Context, and Host-owned Web view receivers, JSON and lookup parameters, scope projections, cancellation, and result codecs.
+The merge-extensible protocol maps keep static associations in the type system, while runtime providers register resolution with `ctx.typert`; the map names and shapes live in [`src/types.ts`](src/types.ts). `InvocationDescriptor` is the shared runtime form consumed by the registry, the Gateway, and the Client Remote, covering direct and Context receivers, JSON and lookup parameters, scope projections, cancellation, and result codecs.
 
 ### Wire identity grammar
 
@@ -137,7 +137,6 @@ These limits define what the declarations can represent; they are current packag
 
 - **Decorator markers are minimal** — markers contain only the method name and the direct or Context invocation mode; parameter, result, lookup, and schema reflection require the Typert build pipeline.
 - **Remote signatures are restricted** — decorators accept only public, non-static instance methods with string names, and source-mode execution cannot represent overloaded, destructured, defaulted, or rest-parameter signatures.
-- **View receivers are assembly-owned** — decorators and source mode do not infer `invocation.kind: 'view'`; an explicitly selected strict descriptor must declare it, and the Gateway permits only unary calls.
 
 <a id="dev-note"></a>
 ### Dev Note

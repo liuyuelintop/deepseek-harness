@@ -4,8 +4,6 @@ import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import {
   parseRemoteStreamServerMessage,
   REMOTE_STREAM_MUX_PATH,
-  REMOTE_VIEW_BIND_ENDPOINT,
-  REMOTE_VIEW_CALL_ENDPOINT,
   type RemoteStreamClientMessage,
   type RemoteStreamServerMessage,
 } from '../stream-protocol.ts'
@@ -40,10 +38,6 @@ export class RemoteStreamMuxClient {
   private revision = 0
   private readonly streams = new Map<string, StreamInbox>()
   private readonly waiters = new Set<SocketWaiter>()
-  private viewSessionId: string | undefined
-  private viewRevision = 0
-  private syncedView: { readonly socket: WebSocket; readonly revision: number } | undefined
-  private viewMutations = Promise.resolve()
   private running = false
   private disposed = false
 
@@ -84,41 +78,6 @@ export class RemoteStreamMuxClient {
    * @returns Host items until completion, cancellation, or failure.
    */
   async *open(
-    endpoint: string,
-    payload: unknown,
-    signal: AbortSignal,
-  ): AsyncGenerator {
-    yield* this.openRaw(endpoint, payload, signal)
-  }
-
-  /** Replace this physical view's displayed Session and invalidate its previous Host binding. */
-  setViewSession(sessionId: string | undefined): Promise<void> {
-    if (this.viewSessionId !== sessionId) {
-      this.viewSessionId = sessionId
-      this.viewRevision += 1
-      this.syncedView = undefined
-    }
-    return this.synchronizeView(new AbortController().signal)
-  }
-
-  /** Invoke one unary Remote under the Host Context bound to this physical view. */
-  async callView(endpoint: string, payload: unknown, signal: AbortSignal): Promise<unknown> {
-    await this.synchronizeView(signal)
-    let count = 0
-    let result: unknown
-    for await (const value of this.openRaw(
-      REMOTE_VIEW_CALL_ENDPOINT,
-      { endpoint, payload },
-      signal,
-    )) {
-      count += 1
-      result = value
-    }
-    if (count !== 1) throw new RemoteStreamCarrierError('api gateway: Remote view call returned an invalid frame count')
-    return result
-  }
-
-  private async *openRaw(
     endpoint: string,
     payload: unknown,
     signal: AbortSignal,
@@ -282,33 +241,7 @@ export class RemoteStreamMuxClient {
   ): void {
     if (this.socket !== socket) return
     this.socket = undefined
-    this.syncedView = undefined
     this.failAll(error)
-  }
-
-  private async synchronizeView(signal: AbortSignal): Promise<void> {
-    for (;;) {
-      signal.throwIfAborted()
-      const socket = await this.waitForSocket(signal)
-      const revision = this.viewRevision
-      if (this.syncedView?.socket === socket && this.syncedView.revision === revision) return
-      const operation = this.viewMutations.then(async () => {
-        signal.throwIfAborted()
-        if (this.syncedView?.socket === socket && this.syncedView.revision === revision) return
-        const payload = this.viewSessionId === undefined ? {} : { sessionId: this.viewSessionId }
-        for await (const value of this.openRaw(REMOTE_VIEW_BIND_ENDPOINT, payload, signal)) {
-          throw new RemoteStreamCarrierError(
-            `api gateway: Remote view binding returned an unexpected item ${String(value)}`,
-          )
-        }
-        if (this.socket === socket && this.viewRevision === revision) {
-          this.syncedView = { socket, revision }
-        }
-      })
-      this.viewMutations = operation.then(() => undefined, () => undefined)
-      await operation
-      if (this.syncedView?.socket === socket && this.syncedView.revision === this.viewRevision) return
-    }
   }
 
   private maintain(): void {

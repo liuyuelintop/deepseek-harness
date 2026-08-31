@@ -6,7 +6,6 @@ import {
   RemoteStreamMuxServer,
   type RemoteStreamFailureMapper,
   type RemoteStreamOpener,
-  type RemoteViewOwner,
 } from '../src/stream-server.ts'
 
 interface RunningMux {
@@ -93,77 +92,6 @@ describe('Remote stream mux server carrier lifecycle', () => {
     const noInputEvent = await once(noInput, 'close')
     expect(noInputEvent[0]).toBe(1008)
     expect(String(noInputEvent[1])).toBe('invalid Remote stream request')
-  })
-
-  it('isolates Host-owned view bindings and invalidates active calls on navigation', async () => {
-    let slowStarted!: () => void
-    const didStartSlow = new Promise<void>((resolve) => { slowStarted = resolve })
-    let slowAborted!: () => void
-    const didAbortSlow = new Promise<void>((resolve) => { slowAborted = resolve })
-    const view: RemoteViewOwner = {
-      bind: async sessionId => sessionId === undefined ? undefined : { sessionId },
-      call: async (endpoint, _payload, signal, context) => {
-        if (endpoint === 'fixture/slow') {
-          slowStarted()
-          await new Promise<void>((resolve) => {
-            signal.addEventListener('abort', () => {
-              slowAborted()
-              resolve()
-            }, { once: true })
-          })
-        }
-        if (typeof context !== 'object' || context === null) throw new Error('view unavailable')
-        return { endpoint, sessionId: (context as Record<string, unknown>).sessionId }
-      },
-    }
-    const entry = await startMux(async (_endpoint, _payload, signal) => waitForAbort(signal), 2_000, view)
-    const alpha = await connect(entry.url)
-    const beta = await connect(entry.url)
-
-    await exchange(alpha, openFrame('bind-alpha', '$view/bind', { sessionId: 'alpha' }), 'bind-alpha')
-    await exchange(beta, openFrame('bind-beta', '$view/bind', { sessionId: 'beta' }), 'bind-beta')
-    await expect(exchange(
-      alpha,
-      openFrame('call-alpha', '$view/call', { endpoint: 'fixture/read', payload: {} }),
-      'call-alpha',
-    )).resolves.toEqual([
-      { type: 'item', streamId: 'call-alpha', value: { endpoint: 'fixture/read', sessionId: 'alpha' } },
-      { type: 'end', streamId: 'call-alpha' },
-    ])
-    await expect(exchange(
-      beta,
-      openFrame('call-beta', '$view/call', { endpoint: 'fixture/read', payload: {} }),
-      'call-beta',
-    )).resolves.toEqual([
-      { type: 'item', streamId: 'call-beta', value: { endpoint: 'fixture/read', sessionId: 'beta' } },
-      { type: 'end', streamId: 'call-beta' },
-    ])
-
-    const late: unknown[] = []
-    alpha.on('message', (data) => {
-      const frame = JSON.parse(rawDataText(data)) as { streamId?: string }
-      if (frame.streamId === 'slow-alpha') late.push(frame)
-    })
-    alpha.send(openFrame('slow-alpha', '$view/call', { endpoint: 'fixture/slow', payload: {} }))
-    await didStartSlow
-    await exchange(alpha, openFrame('bind-alpha-2', '$view/bind', { sessionId: 'beta' }), 'bind-alpha-2')
-    await didAbortSlow
-    await new Promise<void>((resolve) => { setImmediate(resolve) })
-    expect(late).toEqual([])
-    await expect(exchange(
-      alpha,
-      openFrame('call-alpha-2', '$view/call', { endpoint: 'fixture/read', payload: {} }),
-      'call-alpha-2',
-    )).resolves.toEqual([
-      { type: 'item', streamId: 'call-alpha-2', value: { endpoint: 'fixture/read', sessionId: 'beta' } },
-      { type: 'end', streamId: 'call-alpha-2' },
-    ])
-
-    const alphaClosed = once(alpha, 'close')
-    const betaClosed = once(beta, 'close')
-    alpha.close()
-    beta.close()
-    await Promise.all([alphaClosed, betaClosed])
   })
 
   it('accepts all ws text representations and terminates a carrier error', async () => {
@@ -277,12 +205,8 @@ const mapFailure: RemoteStreamFailureMapper = error => ({
   details: {},
 })
 
-async function startMux(
-  open: RemoteStreamOpener,
-  heartbeatIntervalMs = 2_000,
-  view?: RemoteViewOwner,
-): Promise<RunningMux> {
-  const mux = new RemoteStreamMuxServer(open, mapFailure, heartbeatIntervalMs, view)
+async function startMux(open: RemoteStreamOpener, heartbeatIntervalMs = 2_000): Promise<RunningMux> {
+  const mux = new RemoteStreamMuxServer(open, mapFailure, heartbeatIntervalMs)
   const http = createServer()
   http.on('upgrade', (request, socket, head) => { mux.handleUpgrade(request, socket, head) })
   await new Promise<void>((resolve, reject) => {
@@ -312,36 +236,8 @@ function acceptedSocket(mux: RemoteStreamMuxServer): WebSocket {
   return socket
 }
 
-function openFrame(streamId: string, endpoint = 'fixture/follow', payload: unknown = {}): string {
-  return JSON.stringify({ type: 'open', streamId, endpoint, payload })
-}
-
-function exchange(socket: WebSocket, request: string, streamId: string): Promise<unknown[]> {
-  const frames: unknown[] = []
-  return new Promise((resolve, reject) => {
-    const received = (data: WebSocket.RawData): void => {
-      try {
-        const frame = JSON.parse(rawDataText(data)) as { type?: string; streamId?: string }
-        if (frame.streamId !== streamId) return
-        frames.push(frame)
-        if (frame.type === 'end' || frame.type === 'error') {
-          socket.off('message', received)
-          resolve(frames)
-        }
-      } catch (error) {
-        socket.off('message', received)
-        reject(error instanceof Error ? error : new Error(String(error)))
-      }
-    }
-    socket.on('message', received)
-    socket.send(request)
-  })
-}
-
-function rawDataText(data: WebSocket.RawData): string {
-  if (Array.isArray(data)) return Buffer.concat(data).toString('utf8')
-  if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data)).toString('utf8')
-  return data.toString('utf8')
+function openFrame(streamId: string): string {
+  return JSON.stringify({ type: 'open', streamId, endpoint: 'fixture/follow', payload: {} })
 }
 
 async function *waitForAbort(signal: AbortSignal): AsyncIterable<never> {

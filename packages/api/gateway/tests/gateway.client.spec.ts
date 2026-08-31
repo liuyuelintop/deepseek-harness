@@ -90,9 +90,6 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
       signal?: AbortSignal,
     ) => Promise<RemoteResult<{ readonly ref: string }>>
     'probe/maybe': (value: string | null | undefined) => Promise<RemoteResult<string | null | undefined>>
-    'probe/rename': (
-      request: { readonly objective: string },
-    ) => Promise<RemoteResult<{ readonly renamed: boolean }>>
     'probe/watch': (topic: string, signal?: AbortSignal) => AsyncIterable<string>
   }
 
@@ -819,46 +816,6 @@ describe('Client Typert API', () => {
 
     await assembly.dispose()
     expect(ctx.get('remote.probe')).toBeUndefined()
-  })
-
-  it('routes view receiver methods through the bound physical WebSocket without a wire identity', async () => {
-    await withFakeWebSocket('https://harness.example', async () => {
-      const call = vi.fn<ConnectionHandle['rpc']['call']>()
-      const ctx = await bench(call, 'web')
-      const descriptor: InvocationDescriptor = {
-        ...contextDescriptor(),
-        invocation: { kind: 'view' },
-      }
-      const dispose = await ctx.remote.$mount({ package: '@fixture/view', descriptors: [descriptor] })
-      const binding = ctx.remote.$setViewSession('alpha')
-      const socket = FakeWebSocket.sockets[0]!
-      await vi.waitFor(() => { expect(socket.sent).toHaveLength(1) })
-      const bind = JSON.parse(socket.sent[0]!) as { streamId: string }
-      socket.receive({ type: 'end', streamId: bind.streamId })
-      await binding
-
-      const outcome = ctx.remote.probe.rename({ objective: 'land' })
-      await vi.waitFor(() => { expect(socket.sent).toHaveLength(2) })
-      const request = JSON.parse(socket.sent[1]!) as {
-        streamId: string
-        payload: { endpoint: string; payload: { args: Record<string, unknown> } }
-      }
-      expect(request.payload).toEqual({
-        endpoint: 'probe/rename',
-        payload: { args: { request: { objective: 'land' } } },
-      })
-      socket.receive({
-        type: 'item',
-        streamId: request.streamId,
-        value: { ok: true, value: { renamed: true } },
-      })
-      socket.receive({ type: 'end', streamId: request.streamId })
-      await expect(outcome).resolves.toEqual({ ok: true, value: { renamed: true } })
-      expect(call).not.toHaveBeenCalled()
-
-      await dispose()
-      await ctx.fiber.dispose()
-    })
   })
 
   it('accepts weak result codecs and rejects namespace collisions before registration', async () => {
@@ -2331,87 +2288,6 @@ describe('Remote stream client carrier lifecycle', () => {
     await expect(client.open('feed/follow', {}, new AbortController().signal)
       [Symbol.asyncIterator]().next()).rejects.toThrow('Remote stream client not started')
     await client.close()
-  })
-
-  it('binds view calls before dispatch and rebinds after navigation and reconnect', async () => {
-    await withFakeWebSocket('https://harness.example', async () => {
-      const client = new RemoteStreamMuxClient()
-      client.start()
-      const socket = FakeWebSocket.sockets[0]!
-
-      const firstBinding = client.setViewSession('alpha')
-      await vi.waitFor(() => { expect(socket.sent).toHaveLength(1) })
-      const bindAlpha = JSON.parse(socket.sent[0]!) as { streamId: string; endpoint: string; payload: unknown }
-      expect(bindAlpha).toMatchObject({ endpoint: '$view/bind', payload: { sessionId: 'alpha' } })
-      socket.receive({ type: 'end', streamId: bindAlpha.streamId })
-      await firstBinding
-
-      const firstCall = client.callView('conversation/export', { args: {} }, new AbortController().signal)
-      await vi.waitFor(() => { expect(socket.sent).toHaveLength(2) })
-      const callAlpha = JSON.parse(socket.sent[1]!) as { streamId: string; endpoint: string; payload: unknown }
-      expect(callAlpha).toMatchObject({
-        endpoint: '$view/call',
-        payload: { endpoint: 'conversation/export', payload: { args: {} } },
-      })
-      socket.receive({ type: 'item', streamId: callAlpha.streamId, value: { ok: true, value: 'alpha' } })
-      socket.receive({ type: 'end', streamId: callAlpha.streamId })
-      await expect(firstCall).resolves.toEqual({ ok: true, value: 'alpha' })
-
-      const navigation = client.setViewSession('beta')
-      const secondCall = client.callView('conversation/export', { args: {} }, new AbortController().signal)
-      await vi.waitFor(() => { expect(socket.sent).toHaveLength(3) })
-      const bindBeta = JSON.parse(socket.sent[2]!) as { streamId: string; payload: unknown }
-      expect(bindBeta.payload).toEqual({ sessionId: 'beta' })
-      socket.receive({ type: 'end', streamId: bindBeta.streamId })
-      await navigation
-      await vi.waitFor(() => { expect(socket.sent).toHaveLength(4) })
-      const callBeta = JSON.parse(socket.sent[3]!) as { streamId: string }
-      socket.receive({ type: 'item', streamId: callBeta.streamId, value: { ok: true, value: 'beta' } })
-      socket.receive({ type: 'end', streamId: callBeta.streamId })
-      await expect(secondCall).resolves.toEqual({ ok: true, value: 'beta' })
-
-      client.reconnect()
-      await vi.waitFor(() => { expect(FakeWebSocket.sockets).toHaveLength(2) })
-      const replacement = FakeWebSocket.sockets[1]!
-      const replacementCall = client.callView('conversation/export', { args: {} }, new AbortController().signal)
-      await vi.waitFor(() => { expect(replacement.sent).toHaveLength(1) })
-      const rebound = JSON.parse(replacement.sent[0]!) as { streamId: string; payload: unknown }
-      expect(rebound.payload).toEqual({ sessionId: 'beta' })
-      replacement.receive({ type: 'end', streamId: rebound.streamId })
-      await vi.waitFor(() => { expect(replacement.sent).toHaveLength(2) })
-      const replacementOpen = JSON.parse(replacement.sent[1]!) as { streamId: string }
-      replacement.receive({ type: 'item', streamId: replacementOpen.streamId, value: { ok: true } })
-      replacement.receive({ type: 'end', streamId: replacementOpen.streamId })
-      await expect(replacementCall).resolves.toEqual({ ok: true })
-
-      await client.close()
-    })
-  })
-
-  it('rejects invalid view binding and unary response shapes', async () => {
-    await withFakeWebSocket('https://harness.example', async () => {
-      const client = new RemoteStreamMuxClient()
-      client.start()
-      const socket = FakeWebSocket.sockets[0]!
-      const binding = client.setViewSession(undefined)
-      await vi.waitFor(() => { expect(socket.sent).toHaveLength(1) })
-      const bind = JSON.parse(socket.sent[0]!) as { streamId: string; payload: unknown }
-      expect(bind.payload).toEqual({})
-      socket.receive({ type: 'item', streamId: bind.streamId, value: 'unexpected' })
-      await expect(binding).rejects.toThrow('unexpected item')
-      await vi.waitFor(() => { expect(socket.sent).toHaveLength(2) })
-      expect(JSON.parse(socket.sent[1]!)).toEqual({ type: 'cancel', streamId: bind.streamId })
-
-      const call = client.callView('conversation/export', { args: {} }, new AbortController().signal)
-      await vi.waitFor(() => { expect(socket.sent).toHaveLength(3) })
-      const retryBind = JSON.parse(socket.sent[2]!) as { streamId: string }
-      socket.receive({ type: 'end', streamId: retryBind.streamId })
-      await vi.waitFor(() => { expect(socket.sent).toHaveLength(4) })
-      const emptyCall = JSON.parse(socket.sent[3]!) as { streamId: string }
-      socket.receive({ type: 'end', streamId: emptyCall.streamId })
-      await expect(call).rejects.toThrow('invalid frame count')
-      await client.close()
-    })
   })
 
   it('connects without a logical stream, waits for owner-driven retries, and stops permanently', async () => {

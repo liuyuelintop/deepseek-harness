@@ -5,12 +5,6 @@ import type { Branded } from '@deepseek-ai/dsh-brand'
 /** Exact WebSocket route carrying every Typert Remote stream. */
 export const REMOTE_STREAM_MUX_PATH = '/api/remote.mux'
 
-/** Gateway-internal logical stream that replaces one connection's displayed Session binding. */
-export const REMOTE_VIEW_BIND_ENDPOINT = '$view/bind'
-
-/** Gateway-internal logical stream that runs one unary call under the connection's view Context. */
-export const REMOTE_VIEW_CALL_ENDPOINT = '$view/call'
-
 /** Gateway-internal logical stream carrying application-selected Cordis events. */
 export const REMOTE_EVENT_STREAM_ENDPOINT = '$events'
 

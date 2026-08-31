@@ -18,12 +18,6 @@ export interface InvokeRemoteRequest {
   readonly signal?: AbortSignal
 }
 
-/** Resolve one validated session selection into a Host-owned view Context. */
-export type TypertViewResolver = (
-  sessionId: string,
-  signal: AbortSignal,
-) => Promise<Context | undefined>
-
 /** One Host Cordis notification forwarded unchanged to Client Remote subscribers. */
 export interface TypertRemoteEventFrame {
   /** Original Host Cordis event name. */
@@ -127,9 +121,6 @@ export type TypertGatewayErrorCode =
 export interface TypertGateway {
   /** Carrier adapter shared by WebSocket and in-process transports. */
   readonly wireStream: TypertGatewayWireStream
-
-  /** Register the sole Session Controller resolver for Host-owned WebSocket views. */
-  registerViewResolver(resolver: TypertViewResolver): () => Promise<void>
 
   /**
    * Register the application-selected forwarded-event source.

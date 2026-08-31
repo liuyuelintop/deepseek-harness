@@ -112,8 +112,6 @@ export interface ClientRemote extends TypertClientRemote {
    * the latest one afterwards.
    */
   readonly $host: RemoteHostFacts
-  /** Update the Host-owned binding for this physical Web view. */
-  $setViewSession(sessionId: string | undefined): Promise<void>
 }
 
 /** The fixed Host facts exposed on `ctx.remote.$host`. */
@@ -187,10 +185,6 @@ class ClientRemoteService extends Service implements ClientRemote {
 
   $stream<Item>(options: RemoteStreamOptions<Item>): RemoteStream<Item> {
     return new RemoteStream(this.connection, options)
-  }
-
-  $setViewSession(sessionId: string | undefined): Promise<void> {
-    return this.streams.setViewSession(sessionId)
   }
 
   get $host(): RemoteHostFacts {
@@ -291,9 +285,7 @@ class ClientRemoteService extends Service implements ClientRemote {
     }
     for (const descriptor of contribution.descriptors) {
       requireStrictDescriptor(descriptor)
-      if (descriptor.invocation.kind === 'direct' || descriptor.invocation.kind === 'view') {
-        add(direct, descriptor, 'direct')
-      }
+      if (descriptor.invocation.kind === 'direct') add(direct, descriptor, 'direct')
       if (scopedProjection(descriptor) !== undefined) add(scoped, descriptor, 'scoped')
     }
     const namespaces = new Set([...direct.keys(), ...scoped.keys()])
@@ -448,9 +440,7 @@ class ClientRemoteService extends Service implements ClientRemote {
     const connection = this.ownerCtx.get('connection') as ConnectionHandle | undefined
     if (connection === undefined) throw new Error(`client api: ${endpoint} has no active Connection`)
     try {
-      const result = descriptor.invocation.kind === 'view'
-        ? await this.streams.callView(endpoint, { args: prepared.args }, prepared.signal) as Awaited<ReturnType<ConnectionHandle['rpc']['call']>>
-        : await connection.rpc.call('/api', endpoint, { args: prepared.args }, prepared.signal)
+      const result = await connection.rpc.call('/api', endpoint, { args: prepared.args }, prepared.signal)
       if (!mountActive(token)) return withdrawn(endpoint)
       if (!result.ok) return { ok: false, error: rebuiltFailure(result.error) }
       return { ok: true, value: result.value }
@@ -642,7 +632,7 @@ function installMethods(
         scoped: false,
       }
       installed.push(method)
-      if (descriptor.invocation.kind === 'direct' || descriptor.invocation.kind === 'view') {
+      if (descriptor.invocation.kind === 'direct') {
         service.installDirect(descriptor, method.token)
         method.direct = true
       }
