@@ -10,7 +10,7 @@ A browser-selected Typert Context identity cannot authorize an operation for the
 
 ## Decision
 
-The Gateway owns one displayed-Session binding per physical Remote WebSocket. Session Controller projects `sessions.list.current` into that binding. The Host validates a non-empty selection through `sessionQuery`, then creates a child Cordis Context whose `viewSessionId` is fixed to the validated Session. Clearing the selection leaves the connection without a view Context.
+The Gateway owns one displayed-Session binding per physical Remote WebSocket and privately observes Session Controller's read-only `sessions.list.current` snapshot. It exposes no Client Remote method for replacing that binding. The Host validates a non-empty selection through `sessionQuery`, then creates a child Cordis Context whose `viewSessionId` is fixed to the validated Session. Clearing the selection leaves the connection without a view Context.
 
 Typert descriptors opt into this authority with `invocation.kind: 'view'`. The Client exposes such a method as an ordinary unary Remote method with no Context identity or Session id in its business arguments. It sends the call through the already-authenticated physical WebSocket, and the Gateway injects the connection's current view Context after decoding the request. HTTP and direct invocations have no carrier-owned view Context and fail before business execution.
 

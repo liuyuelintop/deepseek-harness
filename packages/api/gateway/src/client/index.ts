@@ -112,8 +112,6 @@ export interface ClientRemote extends TypertClientRemote {
    * the latest one afterwards.
    */
   readonly $host: RemoteHostFacts
-  /** Update the Host-owned binding for this physical Web view. */
-  $setViewSession(sessionId: string | undefined): Promise<void>
 }
 
 /** The fixed Host facts exposed on `ctx.remote.$host`. */
@@ -177,6 +175,29 @@ class ClientRemoteService extends Service implements ClientRemote {
     const loader = ctx.get('loader') as LoaderReadiness | undefined
     if (loader === undefined) start()
     else void loader.await().then(start, () => {})
+    ctx.inject(['sessions'], (viewCtx) => {
+      const sessions = (viewCtx as Context & {
+        sessions: {
+          readonly list: {
+            getSnapshot(): { readonly current: string | undefined }
+            subscribe(listener: () => void): () => void
+          }
+        }
+      }).sessions
+      let current: string | undefined
+      const sync = (): void => {
+        const next = sessions.list.getSnapshot().current
+        if (next === current) return
+        current = next
+        void this.streams.setViewSession(next).catch(() => {})
+      }
+      const unsubscribe = sessions.list.subscribe(sync)
+      sync()
+      viewCtx.effect(() => () => {
+        unsubscribe()
+        void this.streams.setViewSession(undefined).catch(() => {})
+      }, 'api-gateway.client.view-binding')
+    })
     ctx.effect(() => async () => {
       disposed = true
       loop?.stop()
@@ -187,10 +208,6 @@ class ClientRemoteService extends Service implements ClientRemote {
 
   $stream<Item>(options: RemoteStreamOptions<Item>): RemoteStream<Item> {
     return new RemoteStream(this.connection, options)
-  }
-
-  $setViewSession(sessionId: string | undefined): Promise<void> {
-    return this.streams.setViewSession(sessionId)
   }
 
   get $host(): RemoteHostFacts {
