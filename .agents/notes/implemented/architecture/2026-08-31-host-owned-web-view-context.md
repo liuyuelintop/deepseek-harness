@@ -8,6 +8,8 @@ English | [中文](2026-08-31-host-owned-web-view-context.zh.md)
 
 A browser-selected Typert Context identity cannot authorize an operation for the Session displayed in one Web view. The caller can replace or replay that identity, while ordinary HTTP RPC carries no Host-owned view identity. A plugin that accepts a Session id, Agent Context, lease, token, or client id therefore cannot prove that it is acting on the Session visible in the requesting view.
 
+This decision trusts DSH's built-in Gateway and Session Controller Client code. It prevents ordinary Remote consumers from supplying an alternate identity, but it is not browser-process attestation and does not defend against malicious same-origin JavaScript or handcrafted authenticated WebSocket traffic.
+
 ## Decision
 
 The Gateway owns one displayed-Session binding per physical Remote WebSocket and privately observes Session Controller's read-only `sessions.list.current` snapshot. It exposes no Client Remote method for replacing that binding. The Host validates a non-empty selection through `sessionQuery`, then creates a child Cordis Context whose `viewSessionId` is fixed to the validated Session. Clearing the selection leaves the connection without a view Context.

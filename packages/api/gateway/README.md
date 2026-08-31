@@ -78,6 +78,7 @@ No direct effect; invoked business Services own any model-visible result.
 - Forwarded events reach `$on` without business-payload projection or redaction. Ordinary notifications are not replayed after reconnect; Agent-scoped waterfalls project only the top-level Agent identity needed to select the Client Context and carry their own pending lifetime.
 - `websocketHeartbeatIntervalMs` is both the Ping cadence and the Pong deadline. The Host terminates a peer that does not answer before the next interval, so a deployment whose event loop or network can stall longer than this interval must raise it.
 - View receiver methods require the Web carrier and the Session Controller's sole resolver; they do not fall back to HTTP or an in-process stream carrier.
+- View binding trusts DSH's built-in Client runtime; it is not an authorization boundary against malicious same-origin JavaScript or handcrafted authenticated WebSocket traffic.
 
 
 <a id="dev-note"></a>

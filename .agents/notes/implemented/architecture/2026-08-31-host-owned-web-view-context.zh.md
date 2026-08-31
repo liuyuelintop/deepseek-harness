@@ -8,6 +8,8 @@ Status: implemented
 
 由浏览器选择的 Typert Context 身份无法授权某个 Web view 中所显示会话的操作。调用方可以替换或回放该身份，而普通 HTTP RPC 不携带 Host 自有的 view 身份。因此，接受会话 id、Agent Context、租约、token 或 client id 的插件无法证明自己操作的就是发起请求的 view 中可见的会话。
 
+本决策信任 DSH 内置的 Gateway 和 Session Controller Client 代码。它会阻止普通 Remote 消费方提供替代身份，但不属于浏览器进程级证明，也不防御恶意同源 JavaScript 或手工构造的已认证 WebSocket 流量。
+
 ## 决策
 
 网关为每条物理 Remote WebSocket 分别拥有一个显示会话绑定，并在内部观察 Session Controller 的只读 `sessions.list.current` 快照。它不公开任何可替换该绑定的 Client Remote 方法。Host 通过 `sessionQuery` 验证非空选择，然后创建一个 Cordis 子上下文，并把其中的 `viewSessionId` 固定为已验证的会话。清除选择后，该连接不再具有 view Context。

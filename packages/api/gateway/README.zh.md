@@ -78,6 +78,7 @@ Host 组合可通过 `registerRemoteEvents()` 注册唯一的应用事件 source
 - 被转发的事件到达 `$on` 时不做业务载荷投影或脱敏。普通通知在重连后不重放；Agent-scoped waterfall 只投影选择 Client Context 所需的顶层 Agent 身份，并自行携带 pending 生命周期。
 - `websocketHeartbeatIntervalMs` 同时是 Ping 周期和 Pong 截止时间。对端未在下一周期前回复时，Host 会终止连接；如果部署的事件循环或网络可能停顿超过该间隔，必须调大此配置。
 - view 接收者方法要求 Web 载体和 Session Controller 的唯一解析器；它们不会回退到 HTTP 或进程内流载体。
+- view 绑定信任 DSH 内置 Client 运行时；它不是针对恶意同源 JavaScript 或手工构造的已认证 WebSocket 流量的授权边界。
 
 
 <a id="dev-note"></a>

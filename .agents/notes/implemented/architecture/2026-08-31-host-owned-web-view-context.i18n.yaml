@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-31-host-owned-web-view-context.md
-2026-08-31-host-owned-web-view-context.md: 1e78122d294cc2ae31c73e3bbde7818d1b54fac9
-2026-08-31-host-owned-web-view-context.zh.md: 2613647e682e40a7ecde61a2561509a52df47c8c
+2026-08-31-host-owned-web-view-context.md: d0cf958215653dba285461eed0a41668c6ae3b92
+2026-08-31-host-owned-web-view-context.zh.md: 85cb142d3c3f075857c2ff37fed2c47664e6651b
