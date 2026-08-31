@@ -88,6 +88,15 @@ export const inject = [
 export function apply(ctx: Context): void {
   const remotes = ctx.remote as unknown as SessionRemotes
   const sessions = new ClientSessions(ctx, remotes)
+  let current: string | undefined
+  const syncView = (): void => {
+    const next = sessions.list.getSnapshot().current
+    if (next === current) return
+    current = next
+    void ctx.remote.$setViewSession(next).catch(() => {})
+  }
+  const disposeViewSync = sessions.list.subscribe(syncView)
+  syncView()
   ctx.remote.$on('api-session/added', (summary) => { sessions.handleSessionAdded(summary) })
   ctx.remote.$on('api-session/removed', (sessionId) => { sessions.handleSessionRemoved(sessionId) })
   ctx.remote.$on('api-session/status', (sessionId, running) => {
@@ -111,5 +120,9 @@ export function apply(ctx: Context): void {
     identity: candidate => sessions.scopeOf(candidate),
     resolve: sessionId => sessions.resolveAgentScope(sessionId),
   })
-  ctx.effect(() => async () => { await control.dispose() }, 'session-controller.client.control')
+  ctx.effect(() => async () => {
+    disposeViewSync()
+    void ctx.remote.$setViewSession(undefined).catch(() => {})
+    await control.dispose()
+  }, 'session-controller.client.control')
 }

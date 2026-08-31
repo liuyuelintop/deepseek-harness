@@ -89,6 +89,7 @@ interface InvocationDescriptor {
   /** Receiver selection mode. */
   readonly invocation:
     | { readonly kind: 'direct' }
+    | { readonly kind: 'view' }
     | {
       readonly kind: 'context'
       readonly context: string
@@ -182,6 +183,8 @@ type TypertGatewayErrorCode =
 interface TypertGateway {
   /** Carrier adapter shared by WebSocket and in-process transports. */
   readonly wireStream: TypertGatewayWireStream
+  /** Register the sole Session Controller resolver for Host-owned WebSocket views. */
+  registerViewResolver(resolver: TypertViewResolver): () => Promise<void>
   /**
    * Register the application-selected forwarded-event source.
    * @param source - stream factory installed by the Remote assembly.

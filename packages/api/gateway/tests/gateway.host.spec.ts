@@ -431,6 +431,37 @@ describe('TypertGatewayService', () => {
     expect(service.calls).toEqual(['rename'])
   })
 
+  it('accepts a view receiver only from a Host-owned carrier Context', async () => {
+    const { ctx, service } = await setup()
+    registerStrict(ctx, [viewRenameDescriptor()])
+    const view = ctx.extend({ fixtureScope: 'physical-view' })
+
+    await expectCode(ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'rename',
+      args: { request: { title: 'land' } },
+    }), 'gateway/context-unavailable')
+    const gateway = ctx.get('typertGateway') as unknown as {
+      invokeUnary(request: object, view: Context): Promise<unknown>
+    }
+    await expect(gateway.invokeUnary({
+      namespace: 'goals',
+      method: 'rename',
+      args: { request: { title: 'land' } },
+    }, view)).resolves.toEqual({ title: 'land', scope: 'physical-view' })
+    expect(service.calls).toEqual(['rename'])
+  })
+
+  it('owns one replaceable view resolver registration', async () => {
+    const ctx = await setupGateway()
+    const first = ctx.typertGateway.registerViewResolver(async () => ctx.extend())
+    expect(() => ctx.typertGateway.registerViewResolver(async () => ctx.extend()))
+      .toThrow('view resolver is already registered')
+    await first()
+    const second = ctx.typertGateway.registerViewResolver(async () => undefined)
+    await second()
+  })
+
   it('derives SRC direct lookup and JSON parameters from marker and parameter names', async () => {
     const { ctx, service } = await setup()
     const agent = { id: 'agent-1' }
@@ -1408,6 +1439,14 @@ function renameDescriptor(): InvocationDescriptor {
       title: z.string(),
       scope: z.string(),
     })),
+  }
+}
+
+function viewRenameDescriptor(): InvocationDescriptor {
+  return {
+    ...renameDescriptor(),
+    id: '@fixture/gateway#goals/viewRename',
+    invocation: { kind: 'view' },
   }
 }
 

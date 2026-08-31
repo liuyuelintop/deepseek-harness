@@ -1,10 +1,11 @@
 /** Session Remote owner: cold reads, explicit Agent commands, and live control state. */
 
 import { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-api-gateway'
 import z from '@deepseek-ai/schemastery'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import { canOpenNativePath, openNativePath } from '@deepseek-ai/dsh-native-command'
-import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import type { SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import {
@@ -60,6 +61,8 @@ declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Host Session business API and Remote namespace owner. */
     sessionController: SessionController
+    /** Session selected by the Host-owned physical Web view, absent outside that view. */
+    viewSessionId: SessionId | undefined
   }
 }
 
@@ -89,6 +92,7 @@ export class SessionController extends TypertRemoteService {
     'sessions',
     'sessionProjections',
     'sessionQuery',
+    'typertGateway',
     'typert',
     'workspaceRegistry',
   ]
@@ -113,6 +117,20 @@ export class SessionController extends TypertRemoteService {
    */
   constructor(ctx: Context, config: Config, internals: SessionControllerInternals = {}) {
     super(ctx, 'sessionController', { namespace: 'session' })
+    ctx.inject(['typertGateway'], (viewCtx) => {
+      viewCtx.typertGateway.registerViewResolver(async (rawSessionId, signal) => {
+        try {
+          using observation = await viewCtx.sessionQuery.observeSession(SessionId(rawSessionId), {
+            signal,
+            projectionMode: 'none',
+          })
+          return viewCtx.extend({ viewSessionId: observation.header.id })
+        } catch (error) {
+          if (signal.aborted) throw error
+          return undefined
+        }
+      })
+    })
     installModelSelectionProjection(ctx)
     this.agents = new ApiSessionAgentController(ctx)
     this.commands = new SessionCommandController(ctx, this.agents, process.cwd())

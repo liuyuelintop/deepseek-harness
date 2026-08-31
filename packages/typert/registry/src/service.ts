@@ -701,6 +701,9 @@ function validateInvocation(descriptor: InvocationDescriptor): void {
       )
     }
   }
+  if (descriptor.invocation.kind === 'view' && descriptor.mode === 'stream') {
+    throw new Error(`typert: invocation "${descriptor.id}" view receiver must be unary`)
+  }
   if (descriptor.invocation.kind === 'context') {
     validateSegment('Context key', descriptor.invocation.context)
     validateWireName('Context wire field', descriptor.invocation.wire)
