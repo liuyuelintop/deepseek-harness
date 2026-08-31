@@ -287,6 +287,7 @@ describe('TypertRegistry', () => {
     await dispose()
 
     const cases: readonly [InvocationDescriptor, string][] = [
+      [{ ...descriptor, invocation: { kind: 'view' } }, 'Context receiver cannot declare a direct scope projection'],
       [{
         ...descriptor,
         invocation: {
@@ -316,6 +317,21 @@ describe('TypertRegistry', () => {
       })).toThrow(message)
     }
     expect(ctx.typert.remotes.list()).toEqual([])
+  })
+
+  it('accepts unary view receivers and rejects view streams', async () => {
+    const ctx = await makeCtx()
+    const descriptor: InvocationDescriptor = {
+      ...invocation(),
+      invocation: { kind: 'view' },
+    }
+    const dispose = ctx.typert.remotes.register({ package: '@fixture/view', descriptors: [descriptor] })
+    expect(ctx.typert.remotes.get('goals/create')).toBe(descriptor)
+    await dispose()
+    expect(() => ctx.typert.remotes.register({
+      package: '@fixture/view-stream',
+      descriptors: [{ ...descriptor, mode: 'stream' }],
+    })).toThrow('view receiver must be unary')
   })
 
   it('registers lookup and Context providers without domain branches', async () => {

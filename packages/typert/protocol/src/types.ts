@@ -269,6 +269,7 @@ export interface InvocationDescriptor {
   /** Receiver selection mode. */
   readonly invocation:
     | { readonly kind: 'direct' }
+    | { readonly kind: 'view' }
     | {
       readonly kind: 'context'
       readonly context: string

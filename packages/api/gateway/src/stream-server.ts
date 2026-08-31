@@ -5,6 +5,8 @@ import type { Duplex } from 'node:stream'
 import WebSocket, { WebSocketServer, type RawData } from 'ws'
 import {
   parseRemoteStreamClientMessage,
+  REMOTE_VIEW_BIND_ENDPOINT,
+  REMOTE_VIEW_CALL_ENDPOINT,
   type RemoteStreamFailure,
   type RemoteStreamServerMessage,
 } from './stream-protocol.ts'
@@ -18,6 +20,17 @@ export type RemoteStreamOpener = (
 
 /** Convert an invocation or carrier failure to a stable wire value. */
 export type RemoteStreamFailureMapper = (error: unknown) => RemoteStreamFailure
+
+/** Connection-local Host operations that own the displayed Session binding. */
+export interface RemoteViewOwner {
+  readonly bind: (sessionId: string | undefined, signal: AbortSignal) => Promise<unknown>
+  readonly call: (
+    endpoint: string,
+    payload: unknown,
+    signal: AbortSignal,
+    view: unknown,
+  ) => Promise<unknown>
+}
 
 /** Own the no-server WebSocket acceptor and every active logical stream. */
 export class RemoteStreamMuxServer {
@@ -35,6 +48,7 @@ export class RemoteStreamMuxServer {
     private readonly open: RemoteStreamOpener,
     private readonly failure: RemoteStreamFailureMapper,
     private readonly heartbeatIntervalMs: number,
+    private readonly view?: RemoteViewOwner,
   ) {}
 
   /**
@@ -48,7 +62,7 @@ export class RemoteStreamMuxServer {
       this.heartbeatAlive.set(websocket, true)
       websocket.on('pong', () => { this.heartbeatAlive.set(websocket, true) })
       this.startHeartbeat()
-      const connection = new RemoteStreamMuxConnection(websocket, this.open, this.failure)
+      const connection = new RemoteStreamMuxConnection(websocket, this.open, this.failure, this.view)
       const done = connection.run()
       this.connections.add(done)
       void done.then(() => { this.connections.delete(done) })
@@ -89,17 +103,22 @@ export class RemoteStreamMuxServer {
 
 interface ActiveStream {
   readonly abort: AbortController
+  readonly viewCall: boolean
   done: Promise<void>
 }
 
 class RemoteStreamMuxConnection {
   private readonly streams = new Map<string, ActiveStream>()
   private writes = Promise.resolve()
+  private viewContext: unknown
+  private viewGeneration = 0
+  private binding = Promise.resolve()
 
   constructor(
     private readonly socket: WebSocket,
     private readonly open: RemoteStreamOpener,
     private readonly failure: RemoteStreamFailureMapper,
+    private readonly view?: RemoteViewOwner,
   ) {}
 
   async run(): Promise<void> {
@@ -119,6 +138,7 @@ class RemoteStreamMuxConnection {
       })
     })
     await closed
+    this.invalidateView()
     const active = [...this.streams.values()]
     for (const stream of active) stream.abort.abort(new Error('Remote stream socket closed'))
     await Promise.all(active.map(stream => stream.done))
@@ -136,8 +156,10 @@ class RemoteStreamMuxConnection {
     const abort = new AbortController()
     const active: ActiveStream = {
       abort,
+      viewCall: message.endpoint === REMOTE_VIEW_CALL_ENDPOINT,
       done: Promise.resolve(),
     }
+    if (message.endpoint === REMOTE_VIEW_BIND_ENDPOINT) this.invalidateView()
     this.streams.set(message.streamId, active)
     const done = this.pump(message.streamId, message.endpoint, message.payload, active)
     active.done = done
@@ -152,7 +174,7 @@ class RemoteStreamMuxConnection {
     active: ActiveStream,
   ): Promise<void> {
     try {
-      const source = await this.open(endpoint, payload, active.abort.signal)
+      const source = await this.openSource(endpoint, payload, active.abort.signal)
       for await (const value of source) {
         await this.send({ type: 'item', streamId, value })
       }
@@ -167,6 +189,41 @@ class RemoteStreamMuxConnection {
           this.socket.close(1011, 'Remote stream failure could not be delivered')
         }
       }
+    }
+  }
+
+  private openSource(endpoint: string, payload: unknown, signal: AbortSignal): Promise<AsyncIterable<unknown>> {
+    if (endpoint === REMOTE_VIEW_BIND_ENDPOINT) return Promise.resolve(this.bindView(payload, signal))
+    if (endpoint === REMOTE_VIEW_CALL_ENDPOINT) return Promise.resolve(this.callView(payload, signal))
+    return this.open(endpoint, payload, signal)
+  }
+
+  private async *bindView(payload: unknown, signal: AbortSignal): AsyncGenerator<never> {
+    if (this.view === undefined) throw new Error('api gateway: Remote view binding is unavailable')
+    const sessionId = parseViewBinding(payload)
+    const generation = this.viewGeneration
+    const task = this.view.bind(sessionId, signal).then((context) => {
+      if (!signal.aborted && generation === this.viewGeneration) this.viewContext = context
+    })
+    this.binding = task.then(() => undefined, () => undefined)
+    await task
+  }
+
+  private async *callView(payload: unknown, signal: AbortSignal): AsyncGenerator {
+    if (this.view === undefined) throw new Error('api gateway: Remote view calls are unavailable')
+    const request = parseViewCall(payload)
+    await this.binding
+    signal.throwIfAborted()
+    const value = await this.view.call(request.endpoint, request.payload, signal, this.viewContext)
+    signal.throwIfAborted()
+    yield value
+  }
+
+  private invalidateView(): void {
+    this.viewGeneration += 1
+    this.viewContext = undefined
+    for (const active of this.streams.values()) {
+      if (active.viewCall) active.abort.abort(new Error('Remote view changed'))
     }
   }
 
@@ -190,6 +247,31 @@ class RemoteStreamMuxConnection {
     this.writes = delivery.catch(() => undefined)
     return delivery
   }
+}
+
+function parseViewBinding(payload: unknown): string | undefined {
+  if (!isRecord(payload)) throw new Error('api gateway: invalid Remote view binding')
+  const keys = Reflect.ownKeys(payload)
+  if (keys.length === 0) return undefined
+  if (keys.length === 1 && keys[0] === 'sessionId'
+    && typeof payload.sessionId === 'string' && payload.sessionId.length > 0) return payload.sessionId
+  throw new Error('api gateway: invalid Remote view binding')
+}
+
+function parseViewCall(payload: unknown): { endpoint: string; payload: unknown } {
+  if (!isRecord(payload)
+    || Reflect.ownKeys(payload).length !== 2
+    || !Object.hasOwn(payload, 'endpoint')
+    || !Object.hasOwn(payload, 'payload')
+    || typeof payload.endpoint !== 'string'
+    || payload.endpoint.length === 0) {
+    throw new Error('api gateway: invalid Remote view call')
+  }
+  return { endpoint: payload.endpoint, payload: payload.payload }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function rawText(data: RawData): string {
